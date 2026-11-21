@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>4x3 Probe Card · Wafer Test-Time Optimization Simulator</title>
+<style>
+  :root{
+    --bg:#0b0f17; --panel:#121927; --panel2:#182234; --line:#24324a; --txt:#d7e1f0; --mut:#8193ad;
+    --acc:#22d3ee; --good:#34d399; --warn:#fbbf24; --bad:#f87171;
+    --m1:#94a3b8; --m2:#f59e0b; --m3:#a78bfa; --m4:#22d3ee;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:13px/1.45 "Segoe UI","Malgun Gothic",system-ui,sans-serif}
+  header{padding:18px 26px;border-bottom:1px solid var(--line);background:linear-gradient(90deg,#0f1726,#0b0f17)}
+  header h1{margin:0;font-size:20px;letter-spacing:.3px}
+  header h1 span{color:var(--acc)}
+  .meta{color:var(--mut);margin-top:6px;display:flex;flex-wrap:wrap;gap:16px}
+  .meta b{color:var(--txt);font-weight:600}
+  main{padding:18px 26px 40px;display:flex;flex-direction:column;gap:18px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .panel h2{margin:0 0 10px;font-size:14px;color:#b9c7dc;font-weight:600;letter-spacing:.3px;text-transform:uppercase}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .kpi{background:var(--panel2);border:1px solid var(--line);border-left:4px solid var(--c);border-radius:8px;padding:12px 14px;position:relative}
+  .kpi .nm{font-weight:600;color:var(--c)} .kpi .ds{color:var(--mut);font-size:12px}
+  .kpi .big{font-size:26px;font-weight:700;margin-top:6px} .kpi .big small{font-size:13px;color:var(--mut);font-weight:400}
+  .kpi .row{display:flex;justify-content:space-between;color:var(--mut);font-size:12px;margin-top:2px}
+  .kpi .row b{color:var(--txt)}
+  .kpi.best::after{content:"BEST";position:absolute;top:10px;right:10px;background:var(--good);color:#04241a;font-weight:700;font-size:10px;padding:2px 6px;border-radius:4px}
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+  th{color:var(--mut);font-weight:600;font-size:12px;background:#0f1522}
+  td:first-child,th:first-child{text-align:left}
+  tr.best td{background:rgba(34,211,238,.07)}
+  .pos{color:var(--good)} .neg{color:var(--bad)}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+  .charts{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+  .charts canvas{width:100%;height:240px;display:block}
+  .race canvas{width:100%;height:300px;display:block}
+  .ctrl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+  .ctrl button,.ctrl select{background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:6px 11px;font:inherit;cursor:pointer}
+  .ctrl button:hover{border-color:var(--acc)}
+  .ctrl button.on{background:var(--acc);color:#03222a;border-color:var(--acc);font-weight:600}
+  .ctrl .sep{width:1px;height:24px;background:var(--line);margin:0 4px}
+  .ctrl input[type=range]{flex:1;min-width:200px;accent-color:var(--acc)}
+  .ctrl .stepbox{min-width:120px;color:var(--mut)} .ctrl .stepbox b{color:var(--txt)}
+  .stage{display:grid;gap:12px}
+  .stage.single{grid-template-columns:1fr}
+  .stage.grid{grid-template-columns:1fr 1fr}
+  .cell{background:#0d131f;border:1px solid var(--line);border-radius:8px;padding:10px;display:flex;gap:12px}
+  .cell .cv{flex:1;min-width:0;position:relative}
+  .cell canvas{width:100%;display:block;aspect-ratio:1/1}
+  .stage.single .cell canvas{max-width:760px}
+  .hud{width:220px;flex:none;font-variant-numeric:tabular-nums}
+  .stage.grid .hud{width:178px;font-size:12px}
+  .hud .t{font-weight:700;color:var(--c);margin-bottom:6px}
+  .hud .l{display:flex;justify-content:space-between;border-bottom:1px dashed #1e2a3e;padding:3px 0}
+  .hud .l span{color:var(--mut)}
+  .hud .bar{height:6px;background:#1c273a;border-radius:3px;margin-top:8px;overflow:hidden}
+  .hud .bar i{display:block;height:100%;background:var(--c)}
+  .legend{display:flex;flex-wrap:wrap;gap:18px;align-items:center;color:var(--mut);margin-top:10px}
+  .legend canvas{vertical-align:middle}
+  .sw{display:inline-block;width:16px;height:16px;vertical-align:-4px;margin-right:6px;border-radius:2px}
+  #tip{position:fixed;pointer-events:none;background:#020617ee;border:1px solid var(--acc);color:var(--txt);padding:6px 9px;border-radius:6px;font-size:12px;display:none;z-index:9;font-variant-numeric:tabular-nums}
+  .note{color:var(--mut);font-size:12px;margin-top:8px}
+  @media(max-width:1200px){.kpis,.charts{grid-template-columns:1fr 1fr}.stage.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1><span>4×3 Probe Card</span> Wafer Test-Time Optimization Simulator</h1>
+  <div class="meta" id="meta"></div>
+</header>
+<main>
+  <section class="panel"><h2>Algorithm KPI</h2><div class="kpis" id="kpis"></div></section>
+
+  <section class="panel"><h2>4-Algorithm Comparison</h2><div style="overflow-x:auto"><table id="tbl"></table></div>
+    <div class="note">E[Time]은 각 샷의 실제 활성 다이 수율 목록에 대한 Poisson-Binomial DP 정확 기대값 (인덱스 시간 포함). Monte Carlo는 동일한 가상 웨이퍼 세트에 4개 알고리즘을 리플레이한 결과이며, 각 알고리즘의 최종 샷 순서는 OR-Tools Routing(TSP)으로 기측정 스킵 선행 제약을 유지한 채 이동 거리(Step)를 추가 최적화했습니다.</div>
+  </section>
+
+  <section class="charts">
+    <div class="panel"><h2>시간 구성 (Test vs Index)</h2><canvas id="chStack"></canvas></div>
+    <div class="panel"><h2>샷 수 · 기대 All-Fail 샷</h2><canvas id="chShots"></canvas></div>
+    <div class="panel"><h2>Monte Carlo 평균 ± 1σ</h2><canvas id="chMC"></canvas></div>
+  </section>
+
+  <section class="panel race"><h2>누적 시간 레이스 (Step vs Cumulative Expected Time)</h2><canvas id="chRace"></canvas></section>
+
+  <section class="panel">
+    <h2>Wafer Map · Shot Moving Player</h2>
+    <div class="ctrl">
+      <button id="bSingle" class="on">단일 상세 보기</button>
+      <button id="bGrid">4분할 동시 비교 (2×2)</button>
+      <select id="selM"></select>
+      <span class="sep"></span>
+      <button id="bStart" title="처음부터">⏮</button>
+      <button id="bPrev" title="이전 샷">◀</button>
+      <button id="bPlay" title="재생/일시정지" style="min-width:74px">▶ Play</button>
+      <button id="bNext" title="다음 샷">▶</button>
+      <select id="selSpd"><option value="0.5">0.5x</option><option value="1" selected>1x</option><option value="2">2x</option><option value="5">5x</option></select>
+      <input type="range" id="slider" min="0" value="0">
+      <span class="stepbox" id="stepbox"></span>
+    </div>
+    <div class="stage single" id="stage"></div>
+    <div class="legend">
+      <span>avg_good <canvas id="cbar" width="220" height="14"></canvas> <span id="cbarLbl"></span></span>
+      <span><i class="sw" style="background:rgba(34,211,238,.55);border:2px solid #67e8f9"></i>Active (실제 테스트)</span>
+      <span><i class="sw" id="swHatch"></i>Skipped (기측정 → 스킵)</span>
+      <span><i class="sw" style="border:1.5px dashed #94a3b8"></i>Overhang (웨이퍼 외부)</span>
+      <span><i class="sw" style="background:#0b1220;border:1px solid #334155;opacity:.9"></i>Tested (완료)</span>
+      <span><i class="sw" style="background:linear-gradient(90deg,transparent,#fde047)"></i>Move trail</span>
+    </div>
+  </section>
+</main>
+<div id="tip"></div>
+
+<script>
+const DATA = /*__DATA_JSON__*/null;
+const M = DATA.methods, META = DATA.meta;
+const COLORS = {M1:"#94a3b8", M2:"#f59e0b", M3:"#a78bfa", M4:"#22d3ee"};
+const fmt = (v,d=1)=>Number(v).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
+const bestIdx = M.reduce((b,m,i)=>m.summary.exp_total_s<M[b].summary.exp_total_s?i:b,0);
+
+/* ---------------- header / KPI / table ---------------- */
+document.getElementById("meta").innerHTML = [
+  ["유효 다이", META.n_dies], ["평균 avg_good", (META.mean_yield*100).toFixed(1)+"%"],
+  ["그리드", META.rows+"×"+META.cols], ["프로브 카드", META.card_rows+"×"+META.card_cols+" (12 DUT)"],
+  ["INDEX_TIME", META.index_time+" s"], ["T(k) 모드", META.time_mode==="additive"?"가산 3%p (38.4+1.8k)":"복리 3%"],
+  ["Monte Carlo", META.mc_wafers+" wafers"], ["생성", META.generated]
+].map(([k,v])=>`<span>${k}: <b>${v}</b></span>`).join("");
+
+document.getElementById("kpis").innerHTML = M.map((m,i)=>{const s=m.summary,t=m.log.tsp;
+ const tspTag=t&&t.travel_before>s.travel_steps?` <small style="color:var(--good)">(←${t.travel_before})</small>`:"";return `
+ <div class="kpi ${i===bestIdx?"best":""}" style="--c:${COLORS[m.key]}">
+  <div class="nm">${m.key} · ${m.name}</div><div class="ds">${m.desc}</div>
+  <div class="big">${fmt(s.exp_total_s/60,2)} <small>min (${fmt(s.exp_total_s,1)} s)</small></div>
+  <div class="row"><span>Baseline 대비</span><b class="${s.saving_pct>0?"pos":""}">${s.saving_pct>0?"−":""}${fmt(Math.abs(s.saving_pct),2)}%</b></div>
+  <div class="row"><span>샷 수 / 이동 Step</span><b>${s.shots} / ${s.travel_steps}${tspTag}</b></div>
+  <div class="row"><span>MC 평균 ± σ</span><b>${fmt(s.mc.mean_time,1)} ± ${fmt(s.mc.std_time,1)} s</b></div>
+ </div>`}).join("");
+
+(function table(){
+  const h = ["Algorithm","Shots","E[Time] (s)","E[Time] (min)","절감률 vs Baseline","Test (s)","Index (s)","E[All-Fail 샷]","이동 Step","TSP 전→후 (절감)","스킵 슬롯","오버행 슬롯","MC 평균 (s)","MC σ (s)","MC All-Fail/웨이퍼","Runtime (s)"];
+  let html = "<tr>"+h.map(x=>`<th>${x}</th>`).join("")+"</tr>";
+  M.forEach((m,i)=>{const s=m.summary,t=m.log.tsp;
+   const tStr=t?`${t.travel_before}→${t.travel_after} (${t.travel_before>0?fmt((t.travel_before-t.travel_after)/t.travel_before*100,1):0}%)`:"-";
+   html+=`<tr class="${i===bestIdx?"best":""}">
+   <td><i class="dot" style="background:${COLORS[m.key]}"></i>${m.key} ${m.name}</td><td>${s.shots}</td><td>${fmt(s.exp_total_s,1)}</td><td>${fmt(s.exp_total_s/60,2)}</td>
+   <td class="${s.saving_pct>0.0001?"pos":""}">${fmt(s.saving_pct,2)}%</td><td>${fmt(s.exp_test_s,1)}</td><td>${fmt(s.exp_index_s,1)}</td>
+   <td>${fmt(s.exp_allfail_shots,2)}</td><td><b>${s.travel_steps}</b></td><td class="${t&&t.travel_before>t.travel_after?"pos":""}">${tStr}</td><td>${s.skipped_slots}</td><td>${s.overhang_slots}</td>
+   <td>${fmt(s.mc.mean_time,1)}</td><td>${fmt(s.mc.std_time,1)}</td><td>${fmt(s.mc.mean_allfail_shots,2)}</td><td>${m.log.runtime_s??"-"}</td></tr>`});
+  document.getElementById("tbl").innerHTML = html;
+})();
+
+/* ---------------- tiny canvas chart helpers ---------------- */
+function prep(cv){const r=cv.getBoundingClientRect(),d=window.devicePixelRatio||1;cv.width=r.width*d;cv.height=r.height*d;const c=cv.getContext("2d");c.setTransform(d,0,0,d,0,0);return [c,r.width,r.height];}
+function axes(c,W,H,pad,ymax,ylab,ticks=5){
+  c.strokeStyle="#24324a";c.fillStyle="#8193ad";c.font="11px Segoe UI";c.lineWidth=1;
+  for(let i=0;i<=ticks;i++){const v=ymax*i/ticks,y=H-pad.b-(H-pad.t-pad.b)*i/ticks;
+    c.beginPath();c.moveTo(pad.l,y);c.lineTo(W-pad.r,y);c.stroke();c.textAlign="right";c.fillText(fmt(v,0),pad.l-6,y+4);}
+  c.save();c.translate(12,pad.t+(H-pad.t-pad.b)/2);c.rotate(-Math.PI/2);c.textAlign="center";c.fillText(ylab,0,0);c.restore();
+}
+function niceMax(v){const p=Math.pow(10,Math.floor(Math.log10(v)));const n=v/p;return (n<=1.2?1.2:n<=1.5?1.5:n<=2?2:n<=2.5?2.5:n<=3?3:n<=4?4:n<=5?5:n<=6?6:n<=8?8:10)*p;}
+
+function chartStack(){
+  const [c,W,H]=prep(document.getElementById("chStack"));const pad={l:52,r:10,t:20,b:34};
+  const ymax=niceMax(Math.max(...M.map(m=>m.summary.exp_total_s)));axes(c,W,H,pad,ymax,"seconds");
+  const bw=(W-pad.l-pad.r)/M.length;
+  M.forEach((m,i)=>{const s=m.summary,x=pad.l+bw*i+bw*.2,w=bw*.6,sc=(H-pad.t-pad.b)/ymax;
+    const h1=s.exp_test_s*sc,h2=s.exp_index_s*sc,y0=H-pad.b;
+    c.fillStyle=COLORS[m.key];c.fillRect(x,y0-h1,w,h1);
+    c.fillStyle="#475569";c.fillRect(x,y0-h1-h2,w,h2);
+    c.fillStyle="#d7e1f0";c.textAlign="center";c.font="11px Segoe UI";c.fillText(fmt(s.exp_total_s,0),x+w/2,y0-h1-h2-5);
+    c.fillStyle="#8193ad";c.fillText(m.key,x+w/2,H-pad.b+14);});
+  c.fillStyle="#475569";c.fillRect(W-150,6,10,10);c.fillStyle="#8193ad";c.textAlign="left";c.fillText("Index",W-136,15);
+  c.fillStyle="#cbd5e1";c.fillRect(W-90,6,10,10);c.fillStyle="#8193ad";c.fillText("Test",W-76,15);
+}
+function chartShots(){
+  const [c,W,H]=prep(document.getElementById("chShots"));const pad={l:46,r:10,t:20,b:34};
+  const ymax=niceMax(Math.max(...M.map(m=>m.summary.shots)));axes(c,W,H,pad,ymax,"shots");
+  const bw=(W-pad.l-pad.r)/M.length,sc=(H-pad.t-pad.b)/ymax,y0=H-pad.b;
+  M.forEach((m,i)=>{const s=m.summary,x=pad.l+bw*i+bw*.15,w=bw*.33;
+    c.fillStyle=COLORS[m.key];c.fillRect(x,y0-s.shots*sc,w,s.shots*sc);
+    c.fillStyle="#34d399";c.fillRect(x+w+3,y0-s.exp_allfail_shots*sc,w,s.exp_allfail_shots*sc);
+    c.fillStyle="#d7e1f0";c.textAlign="center";c.font="11px Segoe UI";
+    c.fillText(s.shots,x+w/2,y0-s.shots*sc-4);c.fillText(fmt(s.exp_allfail_shots,1),x+w*1.5+3,y0-s.exp_allfail_shots*sc-4);
+    c.fillStyle="#8193ad";c.fillText(m.key,x+w+1.5,H-pad.b+14);});
+  c.textAlign="left";c.fillStyle="#cbd5e1";c.fillRect(W-196,6,10,10);c.fillStyle="#8193ad";c.fillText("Shots",W-182,15);
+  c.fillStyle="#34d399";c.fillRect(W-138,6,10,10);c.fillStyle="#8193ad";c.fillText("E[All-Fail K=0]",W-124,15);
+}
+function chartMC(){
+  const [c,W,H]=prep(document.getElementById("chMC"));const pad={l:52,r:10,t:20,b:34};
+  const hi=Math.max(...M.map(m=>m.summary.mc.mean_time+m.summary.mc.std_time));
+  const lo=Math.min(...M.map(m=>m.summary.mc.mean_time-m.summary.mc.std_time));
+  const y0v=Math.max(0,Math.floor((lo-(hi-lo)*.6)/100)*100),y1v=Math.ceil((hi+(hi-lo)*.2)/100)*100;
+  const Y=v=>H-pad.b-(H-pad.t-pad.b)*(v-y0v)/(y1v-y0v);
+  c.strokeStyle="#24324a";c.fillStyle="#8193ad";c.font="11px Segoe UI";
+  for(let i=0;i<=5;i++){const v=y0v+(y1v-y0v)*i/5;c.beginPath();c.moveTo(pad.l,Y(v));c.lineTo(W-pad.r,Y(v));c.stroke();c.textAlign="right";c.fillText(fmt(v,0),pad.l-6,Y(v)+4);}
+  const bw=(W-pad.l-pad.r)/M.length;
+  M.forEach((m,i)=>{const s=m.summary.mc,x=pad.l+bw*i+bw/2;
+    c.fillStyle=COLORS[m.key]+"55";c.fillRect(x-bw*.28,Y(s.mean_time),bw*.56,Y(y0v)-Y(s.mean_time));
+    c.strokeStyle=COLORS[m.key];c.lineWidth=2;c.beginPath();c.moveTo(x,Y(s.mean_time-s.std_time));c.lineTo(x,Y(s.mean_time+s.std_time));
+    c.moveTo(x-8,Y(s.mean_time-s.std_time));c.lineTo(x+8,Y(s.mean_time-s.std_time));c.moveTo(x-8,Y(s.mean_time+s.std_time));c.lineTo(x+8,Y(s.mean_time+s.std_time));c.stroke();
+    c.fillStyle=COLORS[m.key];c.beginPath();c.arc(x,Y(s.mean_time),4,0,7);c.fill();
+    c.fillStyle="#d7e1f0";c.textAlign="center";c.fillText(fmt(s.mean_time,0)+"±"+fmt(s.std_time,0),x,Y(s.mean_time+s.std_time)-6);
+    c.fillStyle="#8193ad";c.fillText(m.key,x,H-pad.b+14);});
+}
+let raceMarker=null;
+function chartRace(){
+  const [c,W,H]=prep(document.getElementById("chRace"));const pad={l:58,r:170,t:16,b:34};
+  const ymax=niceMax(Math.max(...M.map(m=>m.summary.exp_total_s))),xmax=Math.max(...M.map(m=>m.shots.length));
+  axes(c,W,H,pad,ymax,"cumulative E[time] (s)");
+  const X=s=>pad.l+(W-pad.l-pad.r)*s/xmax,Y=v=>H-pad.b-(H-pad.t-pad.b)*v/ymax;
+  c.fillStyle="#8193ad";c.textAlign="center";
+  for(let s=0;s<=xmax;s+=Math.ceil(xmax/10/5)*5){c.fillText(s,X(s),H-pad.b+14);}
+  c.fillText("shot step",pad.l+(W-pad.l-pad.r)/2,H-4);
+  M.forEach(m=>{c.strokeStyle=COLORS[m.key];c.lineWidth=m.key==="M4"?2.6:1.8;c.beginPath();c.moveTo(X(0),Y(0));
+    m.shots.forEach(s=>c.lineTo(X(s.step),Y(s.cum_time)));c.stroke();
+    const l=m.shots[m.shots.length-1];c.fillStyle=COLORS[m.key];c.beginPath();c.arc(X(l.step),Y(l.cum_time),3.5,0,7);c.fill();});
+  M.forEach((m,i)=>{const s=m.summary;c.fillStyle=COLORS[m.key];c.fillRect(W-pad.r+16,pad.t+8+i*22,12,12);
+    c.fillStyle="#d7e1f0";c.textAlign="left";c.fillText(`${m.key}  ${fmt(s.exp_total_s,0)} s / ${s.shots} shots`,W-pad.r+34,pad.t+18+i*22);});
+  if(raceMarker!==null){c.strokeStyle="#fde04788";c.setLineDash([4,4]);c.beginPath();c.moveTo(X(raceMarker),pad.t);c.lineTo(X(raceMarker),H-pad.b);c.stroke();c.setLineDash([]);}
+}
+
+/* ---------------- wafer renderer ---------------- */
+const MARG=3, VR=META.rows+2*MARG, VC=META.cols+2*MARG;
+const yieldMap=new Map(DATA.wafer.map(([r,c,p])=>[r+","+c,p]));
+const cy=META.rows/2, cx=META.cols/2;
+const wafR=Math.max(...DATA.wafer.map(([r,c])=>Math.hypot(r+.5-cy,c+.5-cx)))+0.75;
+const pMin=Math.min(...DATA.wafer.map(w=>w[2])), pMax=Math.max(...DATA.wafer.map(w=>w[2]));
+const STOPS=[[0,[30,27,75]],[.06,[52,40,140]],[.14,[40,90,170]],[.35,[33,145,140]],[.64,[40,170,90]],[.82,[170,215,60]],[1,[253,231,37]]];
+function cmap(t){t=Math.max(0,Math.min(1,t));for(let i=1;i<STOPS.length;i++){if(t<=STOPS[i][0]){const[a,ca]=STOPS[i-1],[b,cb]=STOPS[i],u=(t-a)/(b-a);
+  return `rgb(${ca.map((v,k)=>Math.round(v+(cb[k]-v)*u)).join(",")})`;}}return "rgb(253,231,37)";}
+const ycol=p=>cmap(p/Math.max(pMax,0.0001));
+let hatchPat=null;
+function hatch(ctx){const p=document.createElement("canvas");p.width=p.height=8;const g=p.getContext("2d");
+  g.fillStyle="rgba(244,114,182,.18)";g.fillRect(0,0,8,8);g.strokeStyle="rgba(244,114,182,.95)";g.lineWidth=1.4;
+  g.beginPath();g.moveTo(0,8);g.lineTo(8,0);g.moveTo(-2,2);g.lineTo(2,-2);g.moveTo(6,10);g.lineTo(10,6);g.stroke();return ctx.createPattern(p,"repeat");}
+
+// precompute per-method step -> tested-before set
+const testedAt = M.map(m=>{const arr=[new Set()];let cur=new Set();m.shots.forEach(s=>{cur=new Set(cur);s.active.forEach(([r,c])=>cur.add(r+","+c));arr.push(cur);});return arr;});
+
+function drawWafer(cv,mi,step){
+  const m=M[mi];const [c,W]=prep(cv);const cs=W/VC;
+  const X=col=>(col+MARG)*cs, Y=row=>(row+MARG)*cs;
+  c.fillStyle="#070b12";c.fillRect(0,0,W,W);
+  c.strokeStyle="#1f2a3d";c.lineWidth=1.5;c.beginPath();c.arc(X(cx),Y(cy),wafR*cs,0,7);c.fillStyle="#0c1320";c.fill();c.stroke();
+  const done=testedAt[mi][Math.max(0,step-1)];   // dies tested before current shot
+  const cur=step>0?m.shots[step-1]:null;
+  for(const [r,col,p] of DATA.wafer){
+    c.fillStyle=ycol(p);c.fillRect(X(col)+.5,Y(r)+.5,cs-1,cs-1);
+    if(done.has(r+","+col)){c.fillStyle="rgba(5,9,16,.72)";c.fillRect(X(col)+.5,Y(r)+.5,cs-1,cs-1);
+      c.fillStyle="rgba(148,163,184,.55)";c.beginPath();c.arc(X(col)+cs/2,Y(r)+cs/2,Math.max(1,cs*.11),0,7);c.fill();}
+  }
+  // trail
+  const upto=Math.max(0,step-1),from=Math.max(0,upto-14);
+  for(let k=from+1;k<=upto;k++){const a=m.shots[k-1],b=m.shots[k];const al=(k-from)/(upto-from+1);
+    c.strokeStyle=`rgba(253,224,71,${.12+.5*al})`;c.lineWidth=Math.max(1,cs*.08);c.beginPath();
+    c.moveTo(X(a.c0+1.5),Y(a.r0+2));c.lineTo(X(b.c0+1.5),Y(b.r0+2));c.stroke();}
+  if(cur){
+    if(step>1){const a=m.shots[step-2];const x1=X(a.c0+1.5),y1=Y(a.r0+2),x2=X(cur.c0+1.5),y2=Y(cur.r0+2);
+      c.strokeStyle="#fde047";c.fillStyle="#fde047";c.lineWidth=Math.max(1.5,cs*.12);c.beginPath();c.moveTo(x1,y1);c.lineTo(x2,y2);c.stroke();
+      const ang=Math.atan2(y2-y1,x2-x1),L=Math.max(6,cs*.6);if(Math.hypot(x2-x1,y2-y1)>2){c.beginPath();c.moveTo(x2,y2);
+      c.lineTo(x2-L*Math.cos(ang-.45),y2-L*Math.sin(ang-.45));c.lineTo(x2-L*Math.cos(ang+.45),y2-L*Math.sin(ang+.45));c.closePath();c.fill();}}
+    if(!hatchPat)hatchPat=hatch(c); else hatchPat=hatch(c);
+    cur.active.forEach(([r,col])=>{c.fillStyle="rgba(34,211,238,.55)";c.fillRect(X(col)+1,Y(r)+1,cs-2,cs-2);
+      c.strokeStyle="#a5f3fc";c.lineWidth=Math.max(1.2,cs*.09);c.strokeRect(X(col)+1.5,Y(r)+1.5,cs-3,cs-3);});
+    cur.skipped.forEach(([r,col])=>{c.fillStyle=hatchPat;c.fillRect(X(col)+1,Y(r)+1,cs-2,cs-2);});
+    cur.overhang.forEach(([r,col])=>{c.setLineDash([3,3]);c.strokeStyle="#94a3b8";c.lineWidth=1;c.strokeRect(X(col)+2,Y(r)+2,cs-4,cs-4);c.setLineDash([]);});
+    c.strokeStyle="#fde047";c.lineWidth=Math.max(2,cs*.13);c.strokeRect(X(cur.c0),Y(cur.r0),cs*META.card_cols,cs*META.card_rows);
+  }
+  c.fillStyle="#8193ad";c.font=`${Math.max(9,cs*.45)}px Segoe UI`;c.textAlign="left";
+  c.fillText(`${m.key} · step ${step}/${m.shots.length}`,6,Math.max(12,cs*.7));
+}
+function hudHTML(mi,step){
+  const m=M[mi],s=step>0?m.shots[step-1]:null,tot=m.summary.exp_total_s;
+  const cum=s?s.cum_time:0;
+  const L=(k,v)=>`<div class="l"><span>${k}</span><b>${v}</b></div>`;
+  return `<div class="t">${m.key} · ${m.name}</div>`+
+   L("Step",`${step} / ${m.shots.length}`)+
+   L("카드 좌상단 (r,c)",s?`(${s.r0}, ${s.c0})`:"-")+
+   L("Active / Skip / OH",s?`${s.active.length} / ${s.skipped.length} / ${s.overhang.length}`:"-")+
+   L("샷 E[time]",s?fmt(s.exp_time,2)+" s":"-")+
+   L("All-Fail P(K=0)",s?fmt(s.p_allfail*100,2)+" %":"-")+
+   L("E[good] in shot",s?fmt(s.exp_good,2):"-")+
+   L("이동 Step",s?s.move:"-")+
+   L("누적 경과 E[time]",fmt(cum,1)+" s")+
+   L("누적 (min)",fmt(cum/60,2))+
+   `<div class="bar"><i style="width:${(cum/tot*100).toFixed(1)}%"></i></div>`+
+   `<div class="l" style="border:0"><span>총 기대 시간</span><b>${fmt(tot,1)} s</b></div>`;
+}
+
+/* ---------------- player ---------------- */
+const stage=document.getElementById("stage"),slider=document.getElementById("slider"),selM=document.getElementById("selM");
+M.forEach((m,i)=>{const o=document.createElement("option");o.value=i;o.textContent=`${m.key} · ${m.name}`;selM.appendChild(o);});
+selM.value=String(M.length-1);
+let mode="single",step=0,playing=false,timer=null;
+const maxSteps=()=>mode==="single"?M[+selM.value].shots.length:Math.max(...M.map(m=>m.shots.length));
+function buildStage(){
+  stage.className="stage "+mode;stage.innerHTML="";
+  const list=mode==="single"?[+selM.value]:M.map((_,i)=>i);
+  list.forEach(mi=>{const d=document.createElement("div");d.className="cell";d.style.setProperty("--c",COLORS[M[mi].key]);
+    d.innerHTML=`<div class="cv"><canvas data-mi="${mi}"></canvas></div><div class="hud" data-mi="${mi}"></div>`;stage.appendChild(d);});
+  stage.querySelectorAll("canvas").forEach(cv=>{cv.addEventListener("mousemove",e=>tip(e,cv));cv.addEventListener("mouseleave",()=>tipEl.style.display="none");});
+  slider.max=maxSteps();if(step>maxSteps())step=maxSteps();render();
+}
+function render(){
+  slider.value=step;
+  stage.querySelectorAll("canvas").forEach(cv=>{const mi=+cv.dataset.mi;drawWafer(cv,mi,Math.min(step,M[mi].shots.length));});
+  stage.querySelectorAll(".hud").forEach(h=>{const mi=+h.dataset.mi;h.innerHTML=hudHTML(mi,Math.min(step,M[mi].shots.length));});
+  document.getElementById("stepbox").innerHTML=`Step <b>${step}</b> / ${maxSteps()}`;
+  raceMarker=step;chartRace();
+}
+function setPlay(p){playing=p;document.getElementById("bPlay").textContent=p?"⏸ Pause":"▶ Play";clearInterval(timer);
+  if(p){if(step>=maxSteps())step=0;timer=setInterval(()=>{if(step>=maxSteps()){setPlay(false);return;}step++;render();},600/+document.getElementById("selSpd").value);}}
+document.getElementById("bPlay").onclick=()=>setPlay(!playing);
+document.getElementById("bStart").onclick=()=>{setPlay(false);step=0;render();};
+document.getElementById("bPrev").onclick=()=>{setPlay(false);step=Math.max(0,step-1);render();};
+document.getElementById("bNext").onclick=()=>{setPlay(false);step=Math.min(maxSteps(),step+1);render();};
+document.getElementById("selSpd").onchange=()=>{if(playing)setPlay(true);};
+slider.oninput=()=>{step=+slider.value;render();};
+selM.onchange=()=>{buildStage();};
+document.getElementById("bSingle").onclick=()=>{mode="single";document.getElementById("bSingle").classList.add("on");document.getElementById("bGrid").classList.remove("on");selM.disabled=false;buildStage();};
+document.getElementById("bGrid").onclick=()=>{mode="grid";document.getElementById("bGrid").classList.add("on");document.getElementById("bSingle").classList.remove("on");selM.disabled=true;buildStage();};
+
+/* ---------------- tooltip ---------------- */
+const tipEl=document.getElementById("tip");
+function tip(e,cv){
+  const r=cv.getBoundingClientRect(),cs=r.width/VC;const col=Math.floor((e.clientX-r.left)/cs)-MARG,row=Math.floor((e.clientY-r.top)/cs)-MARG;
+  const p=yieldMap.get(row+","+col);
+  if(p===undefined){tipEl.style.display="none";return;}
+  const mi=+cv.dataset.mi,m=M[mi];let shotNo="-";
+  for(const s of m.shots){if(s.active.some(([a,b])=>a===row&&b===col)){shotNo=s.step;break;}}
+  tipEl.innerHTML=`(row ${row}, col ${col})<br>avg_good = <b>${p.toFixed(4)}</b><br>${m.key} 측정 샷: #${shotNo}`;
+  tipEl.style.display="block";tipEl.style.left=(e.clientX+14)+"px";tipEl.style.top=(e.clientY+12)+"px";
+}
+
+/* ---------------- legend / init ---------------- */
+(function(){const cv=document.getElementById("cbar"),c=cv.getContext("2d");for(let x=0;x<cv.width;x++){c.fillStyle=cmap(x/cv.width);c.fillRect(x,0,1,cv.height);}
+  document.getElementById("cbarLbl").textContent=`0.00 → ${pMax.toFixed(2)}`;
+  const s=document.getElementById("swHatch");const p=document.createElement("canvas");p.width=p.height=16;const g=p.getContext("2d");g.fillStyle=hatch(g);g.fillRect(0,0,16,16);s.style.backgroundImage=`url(${p.toDataURL()})`;})();
+function drawCharts(){chartStack();chartShots();chartMC();chartRace();}
+window.addEventListener("resize",()=>{drawCharts();render();});
+drawCharts();buildStage();
+</script>
+</body>
+</html>
