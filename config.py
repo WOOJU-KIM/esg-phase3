@@ -10,11 +10,11 @@ CARD_ROWS = 4
 CARD_COLS = 3
 DUT_MAX = CARD_ROWS * CARD_COLS
 
-# ---- Timing model ----
+# ---- Timing model (N-para: +1% per good DUT) ----
 INDEX_TIME = 2.0          # move + chuck up/down per shot [s]
-T_FULL = 60.0             # T(12) [s]
-STEP_RATIO = 0.03         # 3 %p (additive) or 3 % (compound) per missing good die
-TIME_MODE = "additive"    # "additive": 60*(1-0.03*(12-k)) | "compound": 60*0.97**(12-k)
+T_FULL = 60.0             # T(DUT_MAX) [s]
+STEP_RATIO = 0.01         # 1 %p (additive) or 1 % (compound) per good die
+TIME_MODE = "additive"    # "additive": T_FULL*(1-STEP_RATIO*(DUT_MAX-k)) | "compound": T_FULL*(1-STEP_RATIO)**(DUT_MAX-k)
 
 # ---- Files ----
 INPUT_CSV = "wafer_yield_input.csv"
@@ -49,5 +49,5 @@ def time_table(mode: str = None):
 
 
 # Linear coefficients for additive mode: T(k) = A + B*k (k>=1)
-LIN_A = T_FULL * (1.0 - STEP_RATIO * DUT_MAX)   # 38.4
-LIN_B = T_FULL * STEP_RATIO                      # 1.8
+LIN_A = T_FULL * (1.0 - STEP_RATIO * DUT_MAX)   # 52.8 for 12-DUT @ 1%
+LIN_B = T_FULL * STEP_RATIO                      # 0.6  for T_FULL=60 @ 1%

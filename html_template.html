@@ -20,7 +20,7 @@
   main{padding:18px 26px 40px;display:flex;flex-direction:column;gap:18px}
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
   .panel h2{margin:0 0 10px;font-size:14px;color:#b9c7dc;font-weight:600;letter-spacing:.3px;text-transform:uppercase}
-  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px}
   .kpi{background:var(--panel2);border:1px solid var(--line);border-left:4px solid var(--c);border-radius:8px;padding:12px 14px;position:relative}
   .kpi .nm{font-weight:600;color:var(--c)} .kpi .ds{color:var(--mut);font-size:12px}
   .kpi .big{font-size:26px;font-weight:700;margin-top:6px} .kpi .big small{font-size:13px;color:var(--mut);font-weight:400}
@@ -74,8 +74,8 @@
 <main>
   <section class="panel"><h2>Algorithm KPI</h2><div class="kpis" id="kpis"></div></section>
 
-  <section class="panel"><h2>4-Algorithm Comparison</h2><div style="overflow-x:auto"><table id="tbl"></table></div>
-    <div class="note">E[Time]은 각 샷의 실제 활성 다이 수율 목록에 대한 Poisson-Binomial DP 정확 기대값 (인덱스 시간 포함). Monte Carlo는 동일한 가상 웨이퍼 세트에 4개 알고리즘을 리플레이한 결과이며, 각 알고리즘의 최종 샷 순서는 OR-Tools Routing(TSP)으로 기측정 스킵 선행 제약을 유지한 채 이동 거리(Step)를 추가 최적화했습니다.</div>
+  <section class="panel"><h2 id="cmpHdr">Algorithm Comparison</h2><div style="overflow-x:auto"><table id="tbl"></table></div>
+    <div class="note">E[Time]은 각 샷의 실제 활성 다이 수율 목록에 대한 Poisson-Binomial DP 정확 기대값 (인덱스 시간 포함). Monte Carlo는 동일한 가상 웨이퍼 세트에 모든 알고리즘을 리플레이한 결과이며, 각 알고리즘의 최종 샷 순서는 OR-Tools Routing(TSP)으로 기측정 스킵 선행 제약을 유지한 채 이동 거리(Step)를 추가 최적화했습니다.</div>
   </section>
 
   <section class="charts">
@@ -90,7 +90,7 @@
     <h2>Wafer Map · Shot Moving Player</h2>
     <div class="ctrl">
       <button id="bSingle" class="on">단일 상세 보기</button>
-      <button id="bGrid">4분할 동시 비교 (2×2)</button>
+      <button id="bGrid">전체 동시 비교 (Grid)</button>
       <select id="selM"></select>
       <span class="sep"></span>
       <button id="bStart" title="처음부터">⏮</button>
@@ -117,15 +117,20 @@
 <script>
 const DATA = /*__DATA_JSON__*/null;
 const M = DATA.methods, META = DATA.meta;
-const COLORS = {M1:"#94a3b8", M2:"#f59e0b", M3:"#a78bfa", M4:"#22d3ee"};
+const COLORS = {M1:"#94a3b8", M2:"#f59e0b", M3:"#a78bfa", M4:"#22d3ee", M5:"#34d399"};
 const fmt = (v,d=1)=>Number(v).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d});
 const bestIdx = M.reduce((b,m,i)=>m.summary.exp_total_s<M[b].summary.exp_total_s?i:b,0);
 
 /* ---------------- header / KPI / table ---------------- */
+document.getElementById("cmpHdr").textContent = `${M.length}-Algorithm Comparison`;
+const pctRatio = ((META.step_ratio??0.01)*100).toFixed(0);
+const tModeLbl = META.time_mode==="additive"
+  ? `가산 ${pctRatio}%p (${fmt(META.lin_a??52.8,1)}+${fmt(META.lin_b??0.6,1)}k)`
+  : `복리 ${pctRatio}%`;
 document.getElementById("meta").innerHTML = [
   ["유효 다이", META.n_dies], ["평균 avg_good", (META.mean_yield*100).toFixed(1)+"%"],
-  ["그리드", META.rows+"×"+META.cols], ["프로브 카드", META.card_rows+"×"+META.card_cols+" (12 DUT)"],
-  ["INDEX_TIME", META.index_time+" s"], ["T(k) 모드", META.time_mode==="additive"?"가산 3%p (38.4+1.8k)":"복리 3%"],
+  ["그리드", META.rows+"×"+META.cols], ["프로브 카드", `${META.card_rows}×${META.card_cols} (${META.card_rows*META.card_cols} DUT)`],
+  ["INDEX_TIME", META.index_time+" s"], ["T(k) 모드", tModeLbl],
   ["Monte Carlo", META.mc_wafers+" wafers"], ["생성", META.generated]
 ].map(([k,v])=>`<span>${k}: <b>${v}</b></span>`).join("");
 
@@ -176,7 +181,7 @@ function chartStack(){
   c.fillStyle="#cbd5e1";c.fillRect(W-90,6,10,10);c.fillStyle="#8193ad";c.fillText("Test",W-76,15);
 }
 function chartShots(){
-  const [c,W,H]=prep(document.getElementById("chShots"));const pad={l:46,r:10,t:20,b:34};
+  const [c,W,H]=prep(document.getElementById("chShots"));const pad={l:46,r:10,t:28,b:34};
   const ymax=niceMax(Math.max(...M.map(m=>m.summary.shots)));axes(c,W,H,pad,ymax,"shots");
   const bw=(W-pad.l-pad.r)/M.length,sc=(H-pad.t-pad.b)/ymax,y0=H-pad.b;
   M.forEach((m,i)=>{const s=m.summary,x=pad.l+bw*i+bw*.15,w=bw*.33;
@@ -214,7 +219,7 @@ function chartRace(){
   c.fillStyle="#8193ad";c.textAlign="center";
   for(let s=0;s<=xmax;s+=Math.ceil(xmax/10/5)*5){c.fillText(s,X(s),H-pad.b+14);}
   c.fillText("shot step",pad.l+(W-pad.l-pad.r)/2,H-4);
-  M.forEach(m=>{c.strokeStyle=COLORS[m.key];c.lineWidth=m.key==="M4"?2.6:1.8;c.beginPath();c.moveTo(X(0),Y(0));
+  M.forEach((m,i)=>{c.strokeStyle=COLORS[m.key];c.lineWidth=i===bestIdx?2.8:1.8;c.beginPath();c.moveTo(X(0),Y(0));
     m.shots.forEach(s=>c.lineTo(X(s.step),Y(s.cum_time)));c.stroke();
     const l=m.shots[m.shots.length-1];c.fillStyle=COLORS[m.key];c.beginPath();c.arc(X(l.step),Y(l.cum_time),3.5,0,7);c.fill();});
   M.forEach((m,i)=>{const s=m.summary;c.fillStyle=COLORS[m.key];c.fillRect(W-pad.r+16,pad.t+8+i*22,12,12);
@@ -253,12 +258,13 @@ function drawWafer(cv,mi,step){
       c.fillStyle="rgba(148,163,184,.55)";c.beginPath();c.arc(X(col)+cs/2,Y(r)+cs/2,Math.max(1,cs*.11),0,7);c.fill();}
   }
   // trail
+  const hc=META.card_cols/2, hr=META.card_rows/2;
   const upto=Math.max(0,step-1),from=Math.max(0,upto-14);
   for(let k=from+1;k<=upto;k++){const a=m.shots[k-1],b=m.shots[k];const al=(k-from)/(upto-from+1);
     c.strokeStyle=`rgba(253,224,71,${.12+.5*al})`;c.lineWidth=Math.max(1,cs*.08);c.beginPath();
-    c.moveTo(X(a.c0+1.5),Y(a.r0+2));c.lineTo(X(b.c0+1.5),Y(b.r0+2));c.stroke();}
+    c.moveTo(X(a.c0+hc),Y(a.r0+hr));c.lineTo(X(b.c0+hc),Y(b.r0+hr));c.stroke();}
   if(cur){
-    if(step>1){const a=m.shots[step-2];const x1=X(a.c0+1.5),y1=Y(a.r0+2),x2=X(cur.c0+1.5),y2=Y(cur.r0+2);
+    if(step>1){const a=m.shots[step-2];const x1=X(a.c0+hc),y1=Y(a.r0+hr),x2=X(cur.c0+hc),y2=Y(cur.r0+hr);
       c.strokeStyle="#fde047";c.fillStyle="#fde047";c.lineWidth=Math.max(1.5,cs*.12);c.beginPath();c.moveTo(x1,y1);c.lineTo(x2,y2);c.stroke();
       const ang=Math.atan2(y2-y1,x2-x1),L=Math.max(6,cs*.6);if(Math.hypot(x2-x1,y2-y1)>2){c.beginPath();c.moveTo(x2,y2);
       c.lineTo(x2-L*Math.cos(ang-.45),y2-L*Math.sin(ang-.45));c.lineTo(x2-L*Math.cos(ang+.45),y2-L*Math.sin(ang+.45));c.closePath();c.fill();}}

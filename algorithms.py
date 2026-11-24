@@ -354,3 +354,78 @@ def method4_milp_lns(wf, log, warm_orders):
     log["final_cycle_fixes"] = rl.get("cycle_fixes", 0)
     log["runtime_s"] = round(time.time() - t0, 2)
     return seq
+
+
+# =====================================================================
+# Method 5: Zone-Split + Boundary Free-Ride ILP (2-stage exact cover)
+# =====================================================================
+def method5_zone_split_ilp(wf, log):
+    """Stage 1 covers high-yield dies (p >= tau) with min shots while free-riding adjacent
+    low-yield hazard into spare slots; Stage 2 covers the remaining pure low-yield dies with
+    min shots (auto-skipping Stage 1 dies) to maximize All-Fail (K=0) shots."""
+    t0 = time.time()
+    p_lo = max(0.05, float(wf.p.min()) + 0.01)
+    p_hi = min(0.75, float(wf.p.max()) - 0.01)
+    taus = np.linspace(p_lo, p_hi, 20)
+
+    best_t, best_seq, best_meta = None, None, None
+    for tau in taus:
+        H = [i for i in range(wf.n) if wf.p[i] >= tau]
+        if not H or len(H) == wf.n:
+            continue
+        Hset = set(H)
+
+        # Stage 1: cover H with minimum shots, tie-breaking by absorbing max low-yield hazard
+        s1 = pywraplp.Solver.CreateSolver("SCIP")
+        x = [s1.BoolVar(f"x{j}") for j in range(len(wf.cand))]
+        for i in H:
+            s1.Add(sum(x[j] for j in wf.die_cands[i]) >= 1)
+        bonus = [float(wf.w[[i for i in wf.cand_dies[j] if int(i) not in Hset]].sum())
+                 for j in range(len(wf.cand))]
+        s1.Minimize(sum((1.0 - 0.015 * bonus[j]) * x[j] for j in range(len(wf.cand))))
+        s1.SetTimeLimit(3000)
+        if s1.Solve() not in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
+            continue
+        selH = [j for j in range(len(wf.cand)) if x[j].solution_value() > 0.5]
+
+        covered = {int(i) for j in selH for i in wf.cand_dies[j]}
+        rem = [i for i in range(wf.n) if i not in covered]
+
+        # Stage 2: cover remaining pure low-yield dies with minimum shots
+        selL = []
+        if rem:
+            s2 = pywraplp.Solver.CreateSolver("SCIP")
+            y = [s2.BoolVar(f"y{j}") for j in range(len(wf.cand))]
+            for i in rem:
+                s2.Add(sum(y[j] for j in wf.die_cands[i]) >= 1)
+            s2.Minimize(sum(y))
+            s2.SetTimeLimit(3000)
+            if s2.Solve() not in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
+                continue
+            selL = [j for j in range(len(wf.cand)) if y[j].solution_value() > 0.5]
+
+        raw_order = selH + selL
+        t_raw, seq_raw, _ = wf.evaluate(raw_order)
+        t_pol, seq_pol, mv = _polish(wf, seq_raw)
+        if t_pol < t_raw - 1e-9:
+            cand_t, cand_seq, cand_mv = t_pol, seq_pol, mv
+        else:
+            cand_t, cand_seq, cand_mv = t_raw, seq_raw, 0
+
+        if best_t is None or cand_t < best_t - 1e-9:
+            best_t = cand_t
+            best_seq = cand_seq
+            best_meta = {"best_tau": round(float(tau), 4), "shots_high": len(selH),
+                         "shots_low": len(selL), "polish_moves": cand_mv}
+
+    rl = {}
+    final = wf.realize(_assign_from_order(wf, best_seq), rl)
+    t_fin, seq_fin, _ = wf.evaluate(final)
+    assert abs(t_fin - best_t) < 1e-6, "M5 realization changed active sets"
+    log.update(best_meta or {})
+    log["cycle_fixes"] = rl.get("cycle_fixes", 0)
+    log["runtime_s"] = round(time.time() - t0, 2)
+    print(f"    [M5] Zone-Split ILP: tau={log.get('best_tau')} "
+          f"({log.get('shots_high')}H+{log.get('shots_low')}L -> {len(seq_fin)} shots) "
+          f"-> {t_fin:.2f}s in {log['runtime_s']}s")
+    return seq_fin

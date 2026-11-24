@@ -18,6 +18,7 @@ METHODS = [
     ("M2", "Greedy: High-Yield First", "고수율 우선 순차 마스킹 + TSP"),
     ("M3", "Greedy: Min Time-per-Die", "다이당 기대 시간 최소화 + TSP"),
     ("M4", "Yield-Aware MILP + LNS", "수율 인지 Log-Hazard MILP + TSP"),
+    ("M5", "Zone-Split + Free-Ride ILP", "고수율 분리·무임승차 2단계 ILP + TSP"),
 ]
 
 
@@ -81,6 +82,8 @@ def main():
     print("[run] Method 3 ..."); orders["M3"] = A.method3_min_time_per_die(wf, logs["M3"])
     print("[run] Method 4 ...")
     orders["M4"] = A.method4_milp_lns(wf, logs["M4"], {"M1": orders["M1"], "M2": orders["M2"], "M3": orders["M3"]})
+    print("[run] Method 5 ...")
+    orders["M5"] = A.method5_zone_split_ilp(wf, logs["M5"])
 
     for key, _, _ in METHODS:
         t_before, _, _ = wf.evaluate(orders[key])
@@ -109,11 +112,14 @@ def main():
     for r in records:
         r["summary"]["saving_pct"] = 100.0 * (base - r["summary"]["exp_total_s"]) / base
     m4 = records[3]["summary"]["exp_total_s"]
+    m5 = records[4]["summary"]["exp_total_s"]
     assert all(m4 < r["summary"]["exp_total_s"] for r in records[:3]), "M4 must beat M1~M3"
+    assert all(m5 < r["summary"]["exp_total_s"] for r in records[:4]), "M5 must beat M1~M4"
 
     data = {
         "meta": {"n_dies": wf.n, "mean_yield": float(wf.p.mean()), "rows": wf.nrows, "cols": wf.ncols,
                  "card_rows": C.CARD_ROWS, "card_cols": C.CARD_COLS, "index_time": C.INDEX_TIME,
+                 "step_ratio": C.STEP_RATIO, "lin_a": C.LIN_A, "lin_b": C.LIN_B,
                  "time_mode": C.TIME_MODE, "time_table": C.time_table(), "mc_wafers": C.MC_WAFERS,
                  "generated": time.strftime("%Y-%m-%d %H:%M:%S")},
         "wafer": [[r, c, float(p)] for (r, c), p in zip(wf.coords, wf.p)],
